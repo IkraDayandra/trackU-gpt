@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 type Nav = 'Dashboard' | 'Transaksi' | 'Dompet' | 'Kategori' | 'Anggaran' | 'Target tabungan' | 'Asisten AI' | 'Pengaturan'
 type Transaction = { id: number; title: string; category: string; wallet: string; amount: number; type: 'income' | 'expense'; date: string; icon: string; color: string }
+type AssistantMessage = { id: number; from: 'ai' | 'user'; text: string; time: string }
 
 const navItems: { label: Nav; icon: string }[] = [
   { label: 'Dashboard', icon: 'grid' }, { label: 'Transaksi', icon: 'receipt' }, { label: 'Dompet', icon: 'wallet' },
@@ -18,7 +19,9 @@ const search = ref('')
 const transactionType = ref<'all' | 'income' | 'expense'>('all')
 const toast = ref('')
 const question = ref('')
-const assistantMessages = ref([{ from: 'ai', text: 'Hai Ikra! Aku bisa membantumu memahami keuangan grup. Mau tahu apa hari ini?' }])
+const isAssistantTyping = ref(false)
+const assistantMessageList = ref<HTMLElement | null>(null)
+const assistantMessages = ref<AssistantMessage[]>([{ id: 1, from: 'ai', text: 'Hai Ikra! Aku bisa membantumu memahami keuangan grup. Mau tahu apa hari ini?', time: '09.41' }])
 const selectedGroup = ref('Keuangan Rumah')
 
 const transactions = ref<Transaction[]>([
@@ -53,12 +56,21 @@ function addTransaction() {
   modalOpen.value = false; form.value = { title: '', amount: '', type: 'expense', category: 'Makan & minum', wallet: 'BCA Utama' }; notify('Transaksi ditambahkan ke Keuangan Rumah')
 }
 function notify(message: string) { toast.value = message; window.setTimeout(() => toast.value = '', 2800) }
-function askAssistant(suggestion?: string) {
+async function scrollAssistantToEnd() {
+  await nextTick()
+  assistantMessageList.value?.scrollTo({ top: assistantMessageList.value.scrollHeight, behavior: 'smooth' })
+}
+async function askAssistant(suggestion?: string) {
   const text = suggestion || question.value
-  if (!text.trim()) return
-  assistantMessages.value.push({ from: 'user', text })
+  if (!text.trim() || isAssistantTyping.value) return
+  assistantMessages.value.push({ id: Date.now(), from: 'user', text, time: 'Baru saja' })
   question.value = ''
-  window.setTimeout(() => assistantMessages.value.push({ from: 'ai', text: 'Bulan ini, Makan & minum adalah pengeluaran terbesar kamu sebesar Rp1,24 jt. Sisa anggarannya masih Rp760 rb—kamu sudah cukup baik menjaga pengeluaran.' }), 350)
+  isAssistantTyping.value = true
+  await scrollAssistantToEnd()
+  await new Promise<void>(resolve => window.setTimeout(resolve, 650))
+  assistantMessages.value.push({ id: Date.now() + 1, from: 'ai', text: 'Bulan ini, Makan & minum adalah pengeluaran terbesar kamu sebesar Rp1,24 jt. Sisa anggarannya masih Rp760 rb. Kamu sudah cukup baik menjaga pengeluaran.', time: 'Baru saja' })
+  isAssistantTyping.value = false
+  await scrollAssistantToEnd()
 }
 </script>
 
@@ -77,7 +89,7 @@ function askAssistant(suggestion?: string) {
     </aside>
     <div v-if="mobileMenu" class="backdrop" @click="mobileMenu = false"></div>
 
-    <main id="konten-utama">
+    <main id="konten-utama" :class="{ 'chat-active': active === 'Asisten AI' }">
       <header class="topbar">
         <button class="mobile-toggle" @click="mobileMenu = !mobileMenu">☰</button>
         <div class="mobile-brand">trackU</div>
@@ -102,7 +114,7 @@ function askAssistant(suggestion?: string) {
 
       <section v-else-if="active === 'Transaksi'" class="page transaction-page"><div class="page-heading"><div><p class="eyebrow">AGUSTUS 2026</p><h1>Transaksi</h1><p class="subcopy">Catat setiap pergerakan uang di satu tempat.</p></div><button class="primary-button" @click="modalOpen = true"><span>＋</span> Tambah transaksi</button></div><div class="filter-bar"><label class="search"><span>⌕</span><input v-model="search" placeholder="Cari transaksi" /></label><div class="type-filter"><button v-for="option in ['all', 'income', 'expense']" :key="option" :class="{ selected: transactionType === option }" @click="transactionType = option as 'all' | 'income' | 'expense'">{{ typeLabel(option as 'all' | 'income' | 'expense') }}</button></div></div><section class="panel table-panel"><div class="table-title"><h2>{{ filteredTransactions.length }} transaksi</h2><button class="select-button">Semua dompet ⌄</button></div><TransactionList :items="visibleTransactions" :format="format" full /><button v-if="filteredTransactions.length > 5 && !showAllTransactions" class="show-more" @click="showAllTransactions = true">Tampilkan semua transaksi</button></section></section>
 
-      <section v-else-if="active === 'Asisten AI'" class="page assistant-page"><div class="page-heading"><div><p class="eyebrow">KECERDASAN TRACKU</p><h1>Asisten keuangan AI <span>✦</span></h1><p class="subcopy">Ajukan pertanyaan tentang data keuangan bersama dengan bahasa sehari-hari.</p></div></div><div class="assistant-layout"><section class="assistant-chat panel"><div class="assistant-head"><span class="assistant-icon">✦</span><div><b>Asisten trackU</b><small>Menggunakan data dari {{ selectedGroup }}</small></div><span class="online">● Aktif</span></div><div class="messages"><div v-for="(message, index) in assistantMessages" :key="index" class="message" :class="message.from"><span v-if="message.from === 'ai'" class="bot-dot">✦</span><p>{{ message.text }}</p></div></div><div class="suggestions"><button @click="askAssistant('Pengeluaran terbesar saya apa?')">Pengeluaran terbesar saya apa?</button><button @click="askAssistant('Bagaimana kondisi anggaran saya?')">Bagaimana kondisi anggaran saya?</button></div><form class="ask-box" @submit.prevent="askAssistant()"><input v-model="question" placeholder="Tanyakan tentang keuanganmu…" /><button aria-label="Kirim pertanyaan">↑</button></form></section><aside class="panel assistant-side"><span class="big-sparkle">✦</span><h2>Dibuat dari datamu.</h2><p>Asisten dapat merangkum pengeluaran, memeriksa anggaran, dan menemukan pola di grup ini.</p><div class="privacy-note"><span>⌾</span><p>Hanya data keuangan yang boleh kamu akses di grup ini yang digunakan untuk menjawab pertanyaanmu.</p></div></aside></div></section>
+      <section v-else-if="active === 'Asisten AI'" class="page assistant-page"><div class="page-heading"><div><p class="eyebrow">KECERDASAN TRACKU</p><h1>Asisten keuangan AI <span>✦</span></h1><p class="subcopy">Ajukan pertanyaan tentang data keuangan bersama dengan bahasa sehari-hari.</p></div></div><div class="assistant-layout"><section class="assistant-chat panel"><div class="assistant-head"><button class="chat-menu" aria-label="Buka navigasi" @click="mobileMenu = true">☰</button><span class="assistant-icon">✦</span><div><b>Asisten trackU</b><small>{{ selectedGroup }}</small></div><span class="online">● Aktif</span></div><div ref="assistantMessageList" class="messages" aria-live="polite"><div v-for="message in assistantMessages" :key="message.id" class="message" :class="message.from"><span v-if="message.from === 'ai'" class="bot-dot">✦</span><div class="message-content"><p>{{ message.text }}</p><small class="message-meta">{{ message.time }}</small></div></div><div v-if="isAssistantTyping" class="message ai typing-indicator"><span class="bot-dot">✦</span><div class="message-content"><p><i></i><i></i><i></i></p><small class="message-meta">Asisten sedang mengetik</small></div></div></div><div class="suggestions"><button :disabled="isAssistantTyping" @click="askAssistant('Pengeluaran terbesar saya apa?')">Pengeluaran terbesar saya apa?</button><button :disabled="isAssistantTyping" @click="askAssistant('Bagaimana kondisi anggaran saya?')">Bagaimana kondisi anggaran saya?</button></div><form class="ask-box" @submit.prevent="askAssistant()"><textarea v-model="question" rows="1" placeholder="Tanyakan tentang keuanganmu…" aria-label="Pertanyaan untuk Asisten trackU" @keydown.enter.exact.prevent="askAssistant()"></textarea><button :disabled="!question.trim() || isAssistantTyping" aria-label="Kirim pertanyaan">↑</button></form></section><aside class="panel assistant-side"><span class="big-sparkle">✦</span><h2>Dibuat dari datamu.</h2><p>Asisten dapat merangkum pengeluaran, memeriksa anggaran, dan menemukan pola di grup ini.</p><div class="privacy-note"><span>⌾</span><p>Hanya data keuangan yang boleh kamu akses di grup ini yang digunakan untuk menjawab pertanyaanmu.</p></div></aside></div></section>
 
       <section v-else class="page placeholder-page"><div class="page-heading"><div><p class="eyebrow">{{ active.toUpperCase() }}</p><h1>{{ active }}</h1><p class="subcopy">Kelola {{ active.toLowerCase() }} untuk {{ selectedGroup }}.</p></div><button v-if="active !== 'Pengaturan'" class="primary-button" @click="notify(`Editor ${active.toLowerCase()} siap dihubungkan ke backend`) ">＋ Tambah {{ active === 'Target tabungan' ? 'target' : active.slice(0, -1).toLowerCase() }}</button></div><section class="empty-feature panel"><div class="feature-mark">{{ active === 'Dompet' ? '▱' : active === 'Anggaran' ? '◔' : active === 'Target tabungan' ? '◎' : active === 'Kategori' ? '◇' : '⚙' }}</div><h2>Ringkasan {{ active.toLowerCase() }}</h2><p>Tampilan frontend ini sudah siap dihubungkan ke API khusus nantinya. Saat ini, dashboard dan transaksi memakai data contoh yang dapat berinteraksi.</p><div class="preview-cards"><div><small>Grup aktif</small><b>{{ selectedGroup }}</b></div><div><small>Status</small><b class="ready">Siap dihubungkan</b></div></div></section></section>
     </main>
