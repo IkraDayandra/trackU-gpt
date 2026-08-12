@@ -64,6 +64,7 @@ function askAssistant(suggestion?: string) {
 
 <template>
   <div class="app-shell">
+    <a class="skip-link" href="#konten-utama">Lewati ke konten utama</a>
     <aside class="sidebar" :class="{ open: mobileMenu }">
       <div class="brand"><span class="brand-mark">↑</span><span>trackU</span></div>
       <button class="group-switcher" @click="selectedGroup = selectedGroup === 'Keuangan Rumah' ? 'Keuangan Pribadi' : 'Keuangan Rumah'">
@@ -76,7 +77,7 @@ function askAssistant(suggestion?: string) {
     </aside>
     <div v-if="mobileMenu" class="backdrop" @click="mobileMenu = false"></div>
 
-    <main>
+    <main id="konten-utama">
       <header class="topbar">
         <button class="mobile-toggle" @click="mobileMenu = !mobileMenu">☰</button>
         <div class="mobile-brand">trackU</div>
