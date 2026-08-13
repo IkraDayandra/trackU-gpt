@@ -8,6 +8,18 @@
     <meta property="og:title" content="trackU — Keuangan yang terasa lebih dekat" />
     <meta property="og:description" content="Dashboard keuangan personal dan bersama untuk mencatat, memantau, dan merencanakan." />
     <title>trackU — Keuangan yang terasa lebih dekat</title>
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem('tracku-theme-preference') || 'system'
+          const isDark = preference === 'dark' || (preference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light'
+        } catch {
+          document.documentElement.dataset.theme = 'light'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

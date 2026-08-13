@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 type Nav = 'Dashboard' | 'Transaksi' | 'Dompet' | 'Kategori' | 'Anggaran' | 'Target tabungan' | 'Asisten AI' | 'Pengaturan'
 type Transaction = { id: number; title: string; category: string; wallet: string; amount: number; type: 'income' | 'expense'; date: string; icon: string; color: string }
 type AssistantMessage = { id: number; from: 'ai' | 'user'; text: string; time: string }
+type ThemePreference = 'system' | 'light' | 'dark'
 
 const navItems: { label: Nav; icon: string }[] = [
   { label: 'Dashboard', icon: 'grid' }, { label: 'Transaksi', icon: 'receipt' }, { label: 'Dompet', icon: 'wallet' },
@@ -19,10 +20,20 @@ const search = ref('')
 const transactionType = ref<'all' | 'income' | 'expense'>('all')
 const toast = ref('')
 const question = ref('')
+const themePreference = ref<ThemePreference>('system')
+const effectiveTheme = ref<'light' | 'dark'>('light')
+const themeMenuOpen = ref(false)
 const isAssistantTyping = ref(false)
 const assistantMessageList = ref<HTMLElement | null>(null)
 const assistantMessages = ref<AssistantMessage[]>([{ id: 1, from: 'ai', text: 'Hai Ikra! Aku bisa membantumu memahami keuangan grup. Mau tahu apa hari ini?', time: '09.41' }])
 const selectedGroup = ref('Keuangan Rumah')
+const themeOptions: { value: ThemePreference; label: string; icon: string }[] = [
+  { value: 'system', label: 'Ikuti sistem', icon: '◐' },
+  { value: 'light', label: 'Terang', icon: '☼' },
+  { value: 'dark', label: 'Gelap', icon: '◒' },
+]
+const themeStorageKey = 'tracku-theme-preference'
+let systemThemeQuery: MediaQueryList | null = null
 
 const transactions = ref<Transaction[]>([
   { id: 1, title: 'Gaji bulanan', category: 'Gaji', wallet: 'BCA Utama', amount: 12500000, type: 'income', date: 'Hari ini, 08.30', icon: 'briefcase', color: 'purple' },
@@ -42,6 +53,7 @@ const filteredTransactions = computed(() => transactions.value.filter((item) => 
 const visibleTransactions = computed(() => showAllTransactions.value ? filteredTransactions.value : filteredTransactions.value.slice(0, 5))
 const currentMonthExpense = computed(() => transactions.value.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0))
 const balance = computed(() => transactions.value.reduce((sum, t) => sum + (t.type === 'income' ? t.amount : -t.amount), 18436200))
+const activeThemeOption = computed(() => themeOptions.find(option => option.value === themePreference.value) ?? themeOptions[0])
 
 function format(value: number, compact = false) {
   if (compact && value >= 1000000) return `Rp${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`
@@ -49,6 +61,33 @@ function format(value: number, compact = false) {
 }
 function selectPage(page: Nav) { active.value = page; mobileMenu.value = false; window.scrollTo({ top: 0, behavior: 'smooth' }) }
 function typeLabel(type: 'all' | 'income' | 'expense') { return type === 'all' ? 'Semua' : type === 'income' ? 'Pemasukan' : 'Pengeluaran' }
+function resolveTheme(preference = themePreference.value) {
+  return preference === 'dark' || (preference === 'system' && Boolean(systemThemeQuery?.matches)) ? 'dark' : 'light'
+}
+function applyTheme() {
+  const resolvedTheme = resolveTheme()
+  effectiveTheme.value = resolvedTheme
+  document.documentElement.dataset.theme = resolvedTheme
+  document.documentElement.style.colorScheme = resolvedTheme
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#10231c' : '#1e3d32')
+}
+function setTheme(preference: ThemePreference) {
+  themePreference.value = preference
+  window.localStorage.setItem(themeStorageKey, preference)
+  themeMenuOpen.value = false
+  applyTheme()
+}
+function handleSystemThemeChange() {
+  if (themePreference.value === 'system') applyTheme()
+}
+onMounted(() => {
+  const savedTheme = window.localStorage.getItem(themeStorageKey)
+  if (savedTheme === 'system' || savedTheme === 'light' || savedTheme === 'dark') themePreference.value = savedTheme
+  systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  systemThemeQuery.addEventListener('change', handleSystemThemeChange)
+  applyTheme()
+})
+onBeforeUnmount(() => systemThemeQuery?.removeEventListener('change', handleSystemThemeChange))
 function addTransaction() {
   const amount = Number(form.value.amount.replace(/[^0-9]/g, ''))
   if (!form.value.title || !amount) { notify('Isi judul dan nominal terlebih dahulu'); return }
@@ -75,7 +114,7 @@ async function askAssistant(suggestion?: string) {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :data-theme="effectiveTheme">
     <a class="skip-link" href="#konten-utama">Lewati ke konten utama</a>
     <aside class="sidebar" :class="{ open: mobileMenu }">
       <div class="brand"><span class="brand-mark">↑</span><span>trackU</span></div>
@@ -94,7 +133,7 @@ async function askAssistant(suggestion?: string) {
         <button class="mobile-toggle" @click="mobileMenu = !mobileMenu">☰</button>
         <div class="mobile-brand">trackU</div>
         <div class="period"><span class="calendar">□</span><span>Agustus 2026</span><span class="chevron">⌄</span></div>
-        <div class="top-actions"><button class="icon-button" @click="notify('Tidak ada notifikasi baru')">♧<i></i></button><button class="help" @click="notify('Pusat bantuan segera hadir')">?</button></div>
+        <div class="top-actions"><div class="theme-control"><button class="theme-trigger" :aria-expanded="themeMenuOpen" aria-haspopup="menu" :aria-label="`Tema: ${activeThemeOption.label}`" @click="themeMenuOpen = !themeMenuOpen"><span>{{ activeThemeOption.icon }}</span><small>{{ activeThemeOption.label }}</small></button><div v-if="themeMenuOpen" class="theme-menu" role="menu" aria-label="Pilih tema"><button v-for="option in themeOptions" :key="option.value" role="menuitemradio" :aria-checked="themePreference === option.value" :class="{ selected: themePreference === option.value }" @click="setTheme(option.value)"><span>{{ option.icon }}</span>{{ option.label }}<b v-if="themePreference === option.value">✓</b></button></div></div><button class="icon-button" @click="notify('Tidak ada notifikasi baru')">♧<i></i></button><button class="help" @click="notify('Pusat bantuan segera hadir')">?</button></div>
       </header>
 
       <section v-if="active === 'Dashboard'" class="page dashboard">
@@ -114,9 +153,11 @@ async function askAssistant(suggestion?: string) {
 
       <section v-else-if="active === 'Transaksi'" class="page transaction-page"><div class="page-heading"><div><p class="eyebrow">AGUSTUS 2026</p><h1>Transaksi</h1><p class="subcopy">Catat setiap pergerakan uang di satu tempat.</p></div><button class="primary-button" @click="modalOpen = true"><span>＋</span> Tambah transaksi</button></div><div class="filter-bar"><label class="search"><span>⌕</span><input v-model="search" placeholder="Cari transaksi" /></label><div class="type-filter"><button v-for="option in ['all', 'income', 'expense']" :key="option" :class="{ selected: transactionType === option }" @click="transactionType = option as 'all' | 'income' | 'expense'">{{ typeLabel(option as 'all' | 'income' | 'expense') }}</button></div></div><section class="panel table-panel"><div class="table-title"><h2>{{ filteredTransactions.length }} transaksi</h2><button class="select-button">Semua dompet ⌄</button></div><TransactionList :items="visibleTransactions" :format="format" full /><button v-if="filteredTransactions.length > 5 && !showAllTransactions" class="show-more" @click="showAllTransactions = true">Tampilkan semua transaksi</button></section></section>
 
-      <section v-else-if="active === 'Asisten AI'" class="page assistant-page"><div class="page-heading"><div><p class="eyebrow">KECERDASAN TRACKU</p><h1>Asisten keuangan AI <span>✦</span></h1><p class="subcopy">Ajukan pertanyaan tentang data keuangan bersama dengan bahasa sehari-hari.</p></div></div><div class="assistant-layout"><section class="assistant-chat panel"><div class="assistant-head"><button class="chat-menu" aria-label="Buka navigasi" @click="mobileMenu = true">☰</button><span class="assistant-icon">✦</span><div><b>Asisten trackU</b><small>{{ selectedGroup }}</small></div><span class="online">● Aktif</span></div><div ref="assistantMessageList" class="messages" aria-live="polite"><div v-for="message in assistantMessages" :key="message.id" class="message" :class="message.from"><span v-if="message.from === 'ai'" class="bot-dot">✦</span><div class="message-content"><p>{{ message.text }}</p><small class="message-meta">{{ message.time }}</small></div></div><div v-if="isAssistantTyping" class="message ai typing-indicator"><span class="bot-dot">✦</span><div class="message-content"><p><i></i><i></i><i></i></p><small class="message-meta">Asisten sedang mengetik</small></div></div></div><div class="suggestions"><button :disabled="isAssistantTyping" @click="askAssistant('Pengeluaran terbesar saya apa?')">Pengeluaran terbesar saya apa?</button><button :disabled="isAssistantTyping" @click="askAssistant('Bagaimana kondisi anggaran saya?')">Bagaimana kondisi anggaran saya?</button></div><form class="ask-box" @submit.prevent="askAssistant()"><textarea v-model="question" rows="1" placeholder="Tanyakan tentang keuanganmu…" aria-label="Pertanyaan untuk Asisten trackU" @keydown.enter.exact.prevent="askAssistant()"></textarea><button :disabled="!question.trim() || isAssistantTyping" aria-label="Kirim pertanyaan">↑</button></form></section><aside class="panel assistant-side"><span class="big-sparkle">✦</span><h2>Dibuat dari datamu.</h2><p>Asisten dapat merangkum pengeluaran, memeriksa anggaran, dan menemukan pola di grup ini.</p><div class="privacy-note"><span>⌾</span><p>Hanya data keuangan yang boleh kamu akses di grup ini yang digunakan untuk menjawab pertanyaanmu.</p></div></aside></div></section>
+      <section v-else-if="active === 'Asisten AI'" class="page assistant-page"><div class="page-heading"><div><p class="eyebrow">KECERDASAN TRACKU</p><h1>Asisten keuangan AI <span>✦</span></h1><p class="subcopy">Ajukan pertanyaan tentang data keuangan bersama dengan bahasa sehari-hari.</p></div></div><div class="assistant-layout"><section class="assistant-chat panel"><div class="assistant-head"><button class="chat-menu" aria-label="Buka navigasi" @click="mobileMenu = true">☰</button><span class="assistant-icon">✦</span><div><b>Asisten trackU</b><small>{{ selectedGroup }}</small></div><span class="online">● Aktif</span><div class="theme-control chat-theme"><button class="theme-trigger" :aria-expanded="themeMenuOpen" aria-haspopup="menu" :aria-label="`Tema: ${activeThemeOption.label}`" @click="themeMenuOpen = !themeMenuOpen"><span>{{ activeThemeOption.icon }}</span></button><div v-if="themeMenuOpen" class="theme-menu" role="menu" aria-label="Pilih tema"><button v-for="option in themeOptions" :key="option.value" role="menuitemradio" :aria-checked="themePreference === option.value" :class="{ selected: themePreference === option.value }" @click="setTheme(option.value)"><span>{{ option.icon }}</span>{{ option.label }}<b v-if="themePreference === option.value">✓</b></button></div></div></div><div ref="assistantMessageList" class="messages" aria-live="polite"><div v-for="message in assistantMessages" :key="message.id" class="message" :class="message.from"><span v-if="message.from === 'ai'" class="bot-dot">✦</span><div class="message-content"><p>{{ message.text }}</p><small class="message-meta">{{ message.time }}</small></div></div><div v-if="isAssistantTyping" class="message ai typing-indicator"><span class="bot-dot">✦</span><div class="message-content"><p><i></i><i></i><i></i></p><small class="message-meta">Asisten sedang mengetik</small></div></div></div><div class="suggestions"><button :disabled="isAssistantTyping" @click="askAssistant('Pengeluaran terbesar saya apa?')">Pengeluaran terbesar saya apa?</button><button :disabled="isAssistantTyping" @click="askAssistant('Bagaimana kondisi anggaran saya?')">Bagaimana kondisi anggaran saya?</button></div><form class="ask-box" @submit.prevent="askAssistant()"><textarea v-model="question" rows="1" placeholder="Tanyakan tentang keuanganmu…" aria-label="Pertanyaan untuk Asisten trackU" @keydown.enter.exact.prevent="askAssistant()"></textarea><button :disabled="!question.trim() || isAssistantTyping" aria-label="Kirim pertanyaan">↑</button></form></section><aside class="panel assistant-side"><span class="big-sparkle">✦</span><h2>Dibuat dari datamu.</h2><p>Asisten dapat merangkum pengeluaran, memeriksa anggaran, dan menemukan pola di grup ini.</p><div class="privacy-note"><span>⌾</span><p>Hanya data keuangan yang boleh kamu akses di grup ini yang digunakan untuk menjawab pertanyaanmu.</p></div></aside></div></section>
 
-      <section v-else class="page placeholder-page"><div class="page-heading"><div><p class="eyebrow">{{ active.toUpperCase() }}</p><h1>{{ active }}</h1><p class="subcopy">Kelola {{ active.toLowerCase() }} untuk {{ selectedGroup }}.</p></div><button v-if="active !== 'Pengaturan'" class="primary-button" @click="notify(`Editor ${active.toLowerCase()} siap dihubungkan ke backend`) ">＋ Tambah {{ active === 'Target tabungan' ? 'target' : active.slice(0, -1).toLowerCase() }}</button></div><section class="empty-feature panel"><div class="feature-mark">{{ active === 'Dompet' ? '▱' : active === 'Anggaran' ? '◔' : active === 'Target tabungan' ? '◎' : active === 'Kategori' ? '◇' : '⚙' }}</div><h2>Ringkasan {{ active.toLowerCase() }}</h2><p>Tampilan frontend ini sudah siap dihubungkan ke API khusus nantinya. Saat ini, dashboard dan transaksi memakai data contoh yang dapat berinteraksi.</p><div class="preview-cards"><div><small>Grup aktif</small><b>{{ selectedGroup }}</b></div><div><small>Status</small><b class="ready">Siap dihubungkan</b></div></div></section></section>
+      <section v-else-if="active === 'Pengaturan'" class="page settings-page"><div class="page-heading"><div><p class="eyebrow">PREFERENSI APLIKASI</p><h1>Pengaturan</h1><p class="subcopy">Sesuaikan pengalaman trackU sesuai kebiasaanmu.</p></div></div><section class="panel settings-panel"><div class="settings-copy"><span class="feature-mark">◐</span><div><h2>Tampilan aplikasi</h2><p>Pilih tema yang nyaman untuk digunakan. Pilihanmu tersimpan di perangkat ini.</p></div></div><div class="theme-setting-options" role="radiogroup" aria-label="Tema aplikasi"><button v-for="option in themeOptions" :key="option.value" role="radio" :aria-checked="themePreference === option.value" :class="{ selected: themePreference === option.value }" @click="setTheme(option.value)"><span>{{ option.icon }}</span><b>{{ option.label }}</b><small v-if="option.value === 'system'">Mengikuti pengaturan perangkat</small><small v-else-if="option.value === 'light'">Tampilan terang</small><small v-else>Tampilan gelap</small><i v-if="themePreference === option.value">✓</i></button></div></section></section>
+
+      <section v-else class="page placeholder-page"><div class="page-heading"><div><p class="eyebrow">{{ active.toUpperCase() }}</p><h1>{{ active }}</h1><p class="subcopy">Kelola {{ active.toLowerCase() }} untuk {{ selectedGroup }}.</p></div><button class="primary-button" @click="notify(`Editor ${active.toLowerCase()} siap dihubungkan ke backend`) ">＋ Tambah {{ active === 'Target tabungan' ? 'target' : active.slice(0, -1).toLowerCase() }}</button></div><section class="empty-feature panel"><div class="feature-mark">{{ active === 'Dompet' ? '▱' : active === 'Anggaran' ? '◔' : active === 'Target tabungan' ? '◎' : active === 'Kategori' ? '◇' : '⚙' }}</div><h2>Ringkasan {{ active.toLowerCase() }}</h2><p>Tampilan frontend ini sudah siap dihubungkan ke API khusus nantinya. Saat ini, dashboard dan transaksi memakai data contoh yang dapat berinteraksi.</p><div class="preview-cards"><div><small>Grup aktif</small><b>{{ selectedGroup }}</b></div><div><small>Status</small><b class="ready">Siap dihubungkan</b></div></div></section></section>
     </main>
 
     <div v-if="modalOpen" class="modal-layer" @click.self="modalOpen = false"><form class="modal" @submit.prevent="addTransaction"><button type="button" class="modal-close" @click="modalOpen = false">×</button><p class="eyebrow">CATATAN BARU</p><h2>Tambah transaksi</h2><p class="modal-copy">Data ini hanya disimpan di demo lokal.</p><div class="form-type"><button v-for="kind in ['expense', 'income']" :key="kind" type="button" :class="{ chosen: form.type === kind }" @click="form.type = kind as 'income' | 'expense'">{{ typeLabel(kind as 'income' | 'expense') }}</button></div><label>Judul<input v-model="form.title" placeholder="Contoh: Makan siang di Hara" autofocus /></label><label>Nominal<input v-model="form.amount" inputmode="numeric" placeholder="0" /></label><div class="form-row"><label>Kategori<select v-model="form.category"><option>Makan & minum</option><option>Transportasi</option><option>Belanja kebutuhan</option><option>Gaji</option><option>Freelance</option></select></label><label>Dompet<select v-model="form.wallet"><option>BCA Utama</option><option>Mandiri Bersama</option><option>Tabungan Jago</option><option>Tunai</option></select></label></div><button class="primary-button form-submit">Simpan transaksi <span>→</span></button></form></div>
